@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CS-A list</title>
+  <style>
+    :root {
+      --primary: #107c41;
+      --primary-dark: #0b582e;
+      --border-color: #e0e0e0;
+      --header-bg: #f8f9fa;
+      --header-border: #d4d4d4;
+      --text-main: #212529;
+      --text-muted: #5f6368;
+      
+      /* Badges & Highlights */
+      --yes-color: #1b5e20;
+      --yes-bg: #e8f5e9;
+      --no-color: #b71c1c;
+      --no-bg: #ffebee;
+      --alert-red: #ffcdd2;
+      --alert-red-border: #ef9a9a;
+      --alert-green: #c8e6c9;
+      --alert-green-border: #a5d6a7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: #fdfdfd;
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top App Header */
+    .app-header {
+      background: #fff;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .file-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sheet-icon {
+      width: 30px;
+      height: 30px;
+      background: var(--primary);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 16px;
+    }
+    .sheet-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+    .header-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    /* Ribbon / Actions */
+    .ribbon {
+      background: #fff;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 8px 14px;
+      gap: 10px;
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+    }
+    .tool-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #444;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .tool-btn.primary { background: var(--primary); color: white; }
+    .tool-btn.primary:hover { background: var(--primary-dark); }
+    .tool-btn.history { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+
+    /* Delete Banner */
+    .longpress-banner {
+      display: none;
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(33, 33, 33, 0.94);
+      color: white;
+      padding: 9px 20px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      z-index: 3000;
+    }
+
+    /* Spreadsheet Grid View */
+    .grid-container {
+      flex: 1;
+      overflow: auto;
+      background: #fff;
+      position: relative;
+      padding-bottom: 150px;
+      -webkit-overflow-scrolling: touch;
+    }
+    table.spreadsheet-table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: max-content;
+      min-width: 100%;
+      font-size: 14px;
+    }
+
+    th {
+      background: var(--header-bg);
+      color: var(--text-muted);
+      font-weight: 600;
+      border: 1px solid var(--header-border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 10px 8px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    th.corner-cell {
+      z-index: 20;
+      left: 0;
+      width: 48px;
+      min-width: 48px;
+      background: #eceff1;
+    }
+    td.row-header {
+      background: var(--header-bg);
+      color: var(--text-muted);
+      font-weight: 600;
+      border: 1px solid var(--header-border);
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      text-align: center;
+      user-select: none; 
+      -webkit-user-select: none;
+      -webkit-touch-callout: none; 
+    }
+
+    td {
+      border: 1px solid var(--border-color);
+      padding: 0 8px;
+      height: 46px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #333;
+      vertical-align: middle;
+      transition: all 0.2s ease;
+    }
+
+    /* Grid Columns */
+    .col-slno { 
+      width: 60px; min-width: 60px; text-align: center; font-weight: 600; color: #555; cursor: pointer;
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    }
+    .col-name { 
+      width: 240px; min-width: 200px; text-align: left; font-weight: 600; 
+      user-select: text; -webkit-user-select: text; 
+    }
+    .col-want, .col-given { width: 110px; min-width: 100px; text-align: center; cursor: pointer; }
+    .col-received { width: 140px; min-width: 130px; text-align: center; user-select: text; -webkit-user-select: text;}
+    .col-remaining { width: 120px; min-width: 110px; text-align: center; font-weight: bold; color: #444; background: #fafafa;}
+
+    /* Green Strikethrough for Completed Row */
+    tr.row-completed td {
+      background-color: #f1f8f4 !important;
+    }
+    tr.row-completed td.col-name,
+    tr.row-completed td.col-slno,
+    tr.row-completed td.row-header,
+    tr.row-completed td.col-remaining {
+      text-decoration: line-through;
+      text-decoration-color: #107c41;
+      text-decoration-thickness: 2.5px;
+      color: #777;
+    }
+
+    /* Received Input & Status Highlights */
+    .currency-input-box {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      height: 85%;
+      background: transparent;
+      padding: 4px;
+      border-radius: 4px;
+      transition: background 0.3s;
+    }
+    .currency-input-box.highlight-red { background: var(--alert-red); border: 1px solid var(--alert-red-border); }
+    .currency-input-box.highlight-green { background: var(--alert-green); border: 1px solid var(--alert-green-border); }
+    
+    .currency-symbol { font-weight: 600; font-size: 14px; margin-right: 4px; color: #333; pointer-events: none; }
+    .currency-field {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 600;
+      color: #111;
+    }
+
+    /* Touch Pill Badges */
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .pill-badge.yes, .pill-badge.completed { background: var(--yes-bg); color: var(--yes-color); border: 1px solid #a5d6a7; }
+    .pill-badge.no, .pill-badge.yet { background: var(--no-bg); color: var(--no-color); border: 1px solid #ef9a9a; }
+    .pill-placeholder { color: #aaa; font-size: 13px; font-style: italic; }
+
+    /* Popovers */
+    .popover-card {
+      position: absolute;
+      display: none;
+      background: #ffffff;
+      border: 1px solid #cfd8dc;
+      border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+      z-index: 2500;
+      padding: 8px;
+      gap: 8px;
+    }
+    .popover-btn {
+      border: none;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .popover-btn.btn-pos { background: #e8f5e9; color: #1b5e20; }
+    .popover-btn.btn-neg { background: #ffebee; color: #c62828; }
+
+    /* Floating Draggable History Window */
+    .history-window {
+      display: none;
+      position: fixed;
+      top: 15%;
+      left: 5%;
+      width: 90%;
+      max-width: 450px;
+      height: 60vh;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+      z-index: 4000;
+      flex-direction: column;
+      border: 1px solid #ddd;
+    }
+    .history-header {
+      background: #f1f3f4;
+      padding: 14px 16px;
+      border-top-left-radius: 8px;
+      border-top-right-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: grab;
+      border-bottom: 1px solid #ddd;
+    }
+    .history-header:active { cursor: grabbing; }
+    .history-title { font-weight: 600; color: #333; font-size: 15px; display: flex; align-items: center; gap: 8px;}
+    .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; }
+    .history-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .history-card {
+      background: #fafafa;
+      border: 1px solid #eee;
+      border-left: 4px solid var(--primary);
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .history-card .meta { font-size: 11px; color: #888; margin-bottom: 6px; }
+    .history-card .user { font-weight: 700; color: #222; }
+
+    /* Floating Action Button (+) */
+    .fab-add {
+      position: fixed;
+      bottom: 40px;
+      right: 25px;
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+      cursor: pointer;
+      z-index: 100;
+    }
+    
+    /* Modals */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 3500;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-box {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      width: 90%;
+      max-width: 380px;
+    }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-btn { padding: 10px 16px; border-radius: 4px; border: none; font-weight: 600; font-size: 14px; cursor: pointer; }
+    .modal-btn.cancel { background: #e0e0e0; }
+    .modal-btn.delete { background: #d32f2f; color: white; }
+    .modal-btn.primary { background: var(--primary); color: white; }
+    .input-field { width: 100%; padding: 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 4px; outline: none; margin-top: 10px; }
+    
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="file-meta">
+      <div class="sheet-icon">田</div>
+      <div class="sheet-title">CS-A list</div>
+    </div>
+    <div class="header-actions">
+      <span id="saveStatus" style="font-size: 13px; color: #107c41; font-weight: 600; opacity: 0; transition: opacity 0.3s;">Auto-saved</span>
+      <button class="tool-btn history" id="btnHistory">🕒 History</button>
+    </div>
+    <div style="width:100%; font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+      <b>Hold Row Number (Sl. No.)</b> to delete a student. Text is copyable.
+    </div>
+  </header>
+
+  <div class="ribbon">
+    <button class="tool-btn primary" id="btnOpenAddModal"><span>+</span> Add Name</button>
+    <span style="font-size: 13px; color: var(--text-muted); margin-left: auto;">
+      Students: <b id="rowCountBadge">0</b>
+    </span>
+  </div>
+
+  <div class="longpress-banner" id="longpressBanner"><span>Hold to delete row...</span></div>
+
+  <!-- Popover for Want (Yes/No) -->
+  <div class="popover-card" id="wantPopover">
+    <button class="popover-btn btn-pos" id="wantYesBtn">✓ Yes</button>
+    <button class="popover-btn btn-neg" id="wantNoBtn">✕ No</button>
+    <button class="popover-btn" id="wantClearBtn" style="background:#f5f5f5; color:#555;">Clear</button>
+  </div>
+
+  <!-- Popover for Given (Completed/Yet) -->
+  <div class="popover-card" id="givenPopover">
+    <button class="popover-btn btn-pos" id="givenCompletedBtn">✓ Completed</button>
+    <button class="popover-btn btn-neg" id="givenYetBtn">✕ Yet</button>
+    <button class="popover-btn" id="givenClearBtn" style="background:#f5f5f5; color:#555;">Clear</button>
+  </div>
+
+  <div class="history-window" id="historyWindow">
+    <div class="history-header" id="historyHeader">
+      <div class="history-title">🕒 Edit History Log</div>
+      <button class="close-btn" id="closeHistoryBtn">✕</button>
+    </div>
+    <div class="history-body" id="historyBody">
+      <div style="text-align:center; color:#999; margin-top: 20px;">Loading history...</div>
+    </div>
+  </div>
+
+  <div class="grid-container" id="gridContainer">
+    <table class="spreadsheet-table" id="spreadsheet">
+      <thead>
+        <tr>
+          <th class="corner-cell">#</th>
+          <th class="col-slno">Sl. No.</th>
+          <th class="col-name">Student Name</th>
+          <th class="col-want">Want</th>
+          <th class="col-received">Received</th>
+          <th class="col-given">Given</th>
+          <th class="col-remaining">Remaining</th>
+        </tr>
+      </thead>
+      <tbody id="sheetBody">
+        <!-- Rows injected here -->
+      </tbody>
+    </table>
+  </div>
+
+  <button class="fab-add" id="fabAdd" title="Add Student Name">+</button>
+
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal-box">
+      <h3 style="margin-bottom: 10px;">Delete Student?</h3>
+      <div id="deleteModalDesc" style="color: #555; font-size: 15px; margin-bottom: 10px;"></div>
+      <div class="modal-actions">
+        <button class="modal-btn cancel" id="cancelDeleteBtn">Cancel</button>
+        <button class="modal-btn delete" id="confirmDeleteBtn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="addNameModal">
+    <div class="modal-box">
+      <h3 style="margin-bottom: 10px;">Add Student Name</h3>
+      <input type="text" class="input-field" id="newStudentNameInput" placeholder="Enter full name...">
+      <div class="modal-actions">
+        <button class="modal-btn cancel" id="cancelAddBtn">Cancel</button>
+        <button class="modal-btn primary" id="confirmAddBtn">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { 
+      getFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, 
+      onSnapshot, query, orderBy, serverTimestamp, addDoc 
+    } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBwEhCK0dpslmSHdL6OsAqJUM7ZUmtLqvU",
+      authDomain: "toyou-a80b2.firebaseapp.com",
+      projectId: "toyou-a80b2",
+      storageBucket: "toyou-a80b2.firebasestorage.app",
+      messagingSenderId: "77162611167",
+      appId: "1:77162611167:web:3dc6d01aa9dcd4bdc0046a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const DB_COLLECTION = "cs_a_ledger_students";
+    const DB_HISTORY = "cs_a_ledger_history";
+    const DB_META = "cs_a_ledger_meta";
+    const ROSTER_VERSION = "roster_v2"; // bump this to re-run the roster sync
+
+    let currentUser = localStorage.getItem("cs_a_username");
+    if (!currentUser) {
+      currentUser = prompt("Enter your Name/Role to access the sheet:") || "Anonymous User";
+      localStorage.setItem("cs_a_username", currentUser);
+    }
+
+    // Official CS-A roster, exactly as in "S1 CS A - Attendance" PDF (62 students)
+    const STUDENT_NAMES = [
+      "AADIL AMEEN V S", "ABDUL BASITH A", "ADHIL MUHAMMED N", "AISHA SOOFIYA S", "AKSHAY KOWSIK",
+      "AMALKHAIS N", "AMEEN C N", "ANISAR ANSARI", "ANSIYA T Y", "ARATHI BABU",
+      "ASHINA N", "ASIYA M M", "ATHULYA SHIBU", "AYISHA JAWAHIRAH K M", "DHIYA NAZARIN K K",
+      "DIYA FATHIMA", "FABI FAZAL", "FAIHA K T K", "FARHAN ARSHEED", "FARISA K M",
+      "FARIZ AIDEN S", "FATHIMA AFRA V", "FATHIMA DEHABIYA P S", "FATHIMA FARHANA T S", "FATHIMA FARSANA",
+      "FATHIMA FAYIZA V A", "FATHIMA K A", "FATHIMA RIYA K", "FATHIMA SHEENA", "FATHIMA T M",
+      "FAYIZ SAFEER V S", "FIDHA FATHIMA A", "FIDHA P M", "FIZA MAYINKUTTY", "HAAMID IBRAHIM K S",
+      "HADHI ABDUL GAFOOR", "HAROON RASHEED P", "HIBA ASHRAF P T", "IMRAN NAVAS", "IRFANA FATHIMA NAVAS",
+      "JOSHUA JOSEPH V J", "MOHAMMED AMAN T Z", "MOHAMMED HARSHAD", "MOHAMMED YASEEN V M", "MUHAMMED FAADHIL K F",
+      "MUHAMMED FARHAN O N", "MUHAMMED IHSAN K M", "MUHAMMED RIHAN KHAN", "MUHAMMED SUFIYAN K", "NABUHAN AHMED S S",
+      "NEHRIN FATHIMA V F", "NISHMA E P", "NIYA VINODKUMAR", "PAVAN K T", "PRAVEEN P",
+      "RIZA MEHAR K M", "SABIRA B", "SANA P SIYAD", "SANIYA RACHEL BOBBY", "SHANIYA P S",
+      "SUHAIB BIN KASIM", "SWATHY R"
+    ];
+
+    // Names used by the previous version of this page (same order) - used only so the
+    // roster sync can safely rename old rows without overwriting names people edited by hand.
+    const OLD_STUDENT_NAMES = [
+      "AADIL AMEEN VS", "ABDUL BASITH A", "ADHIL MUHAMMED N", "AISHA SOOFIYA S", "AKSHAY KOWSIK",
+      "AMALKHAIS N", "AMEEN CN", "ANISAR ANSARI", "ANSIYATY", "ARATHI BABU", "ASHINA N", "ASIYA MM", 
+      "ATHULYA SHIBU", "AYISHA JAWAHIRAH KM", "DHIYA NAZARIN K K", "DIYA FATHIMA", "FABI FAZAL", "FAJHA KTK", 
+      "FARHAN ARSHEED", "FARISA K M", "FARIZ AIDEN S", "FATHIMA AFRA V", "FATHIMA DEHABIYA P S", "FATHIMA FARHANATS", 
+      "FATHIMA FARSANA", "FATHIMA FAYIZA V A", "FATHIMA KA", "FATHIMA RIYA K", "FATHIMA SHEENA", "FATHIMATM",
+      "FAYIZ SAFEER VS", "FIDHA FATHIMA A", "FIDHA PM", "FIZA MAYINKUTTY", "HAAMID IBRAHIM KS", "HADHI ABDUL GAFOOR", 
+      "HAROON RASHEED P", "HIBA ASHRAF PT", "IMRAN NAVAS", "IRFANA FATHIMA NAVAS", "JOSHUA JOSEPH VJ", "MOHAMMED AMAN TZ", 
+      "MOHAMMED HARSHAD", "MOHAMMED YASEEN V M", "MUHAMMED FAADHIL KF", "MUHAMMED FARHAN ON", "MUHAMMED IHSAN KIM", 
+      "MUHAMMED RIHAN KHAN", "MUHAMMED SUFIYAN K", "NABUHAN AHMED SS", "NEHRIN FATHIMA V F", "NISHMA E P", "NIYA VINODKUMAR", 
+      "PAVAN KT", "PRAVEEN P", "RIZA MEHAR KM", "SABIRA B", "SANA P SIYAD", "SANIYA RACHEL BOBBY", "SHANIYA PS",
+      "SUHAIB BIN KASIM", "SWATHY R"
+    ];
+
+    const sheetBody = document.getElementById("sheetBody");
+    const saveStatus = document.getElementById("saveStatus");
+    let currentTargetWantCell = null, currentTargetGivenCell = null;
+    let currentDataRef = null;
+    let targetRowToDeleteId = null, targetRowToDeleteElem = null;
+    let initialLoadComplete = false;
+
+    function escapeHTML(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function showSaved() {
+      if(!initialLoadComplete) return; 
+      saveStatus.style.opacity = "1";
+      setTimeout(() => { saveStatus.style.opacity = "0"; }, 2500);
+    }
+
+    async function logHistory(action, details) {
+      if(!initialLoadComplete && action !== "INIT" && action !== "ROSTER") return;
+      try {
+        await addDoc(collection(db, DB_HISTORY), {
+          user: currentUser, action: action, details: details, timestamp: serverTimestamp()
+        });
+      } catch (e) { console.error("History Log Error: ", e); }
+    }
+
+    async function autoSaveRow(id, data, logAction = false, logDetails = "") {
+      if(!initialLoadComplete) return;
+      try {
+        await setDoc(doc(db, DB_COLLECTION, id), data, { merge: true });
+        showSaved();
+        if (logAction) logHistory("EDIT", logDetails);
+      } catch(e) { console.error("Database Save Error: ", e); }
+    }
+
+    function buildRow(data) {
+      const tr = document.createElement("tr");
+      tr.id = `row-${data.id}`;
+      
+      // Auto calc remaining value: 160 - received if want is "Yes"
+      if (data.want === "Yes") {
+        let cleanRec = (data.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
+        let receivedNum = parseInt(cleanRec, 10) || 0;
+        data.remaining = (160 - receivedNum).toString();
+      } else {
+        data.remaining = "";
+      }
+      
+      // Apply Strikethrough style if Given is Completed
+      if (data.given === "Completed") {
+          tr.classList.add("row-completed");
+      }
+      
+      tr.innerHTML += `<td class="row-header sl-index" title="Hold to delete">${data.slNo}</td>`;
+      tr.innerHTML += `<td class="col-slno sl-index" title="Hold to delete">${data.slNo}</td>`;
+      
+      const nameCell = document.createElement("td");
+      nameCell.className = "col-name"; nameCell.contentEditable = "true"; nameCell.textContent = data.name;
+      nameCell.addEventListener("blur", (e) => {
+        const newName = e.target.textContent.trim();
+        if (newName && newName !== data.name) {
+          logHistory("EDIT", `Changed name from "${data.name}" to "${newName}"`);
+          data.name = newName; autoSaveRow(data.id, data);
+        }
+      });
+      tr.appendChild(nameCell);
+
+      // Want Column (Yes/No)
+      const wantCell = document.createElement("td");
+      wantCell.className = "col-want"; wantCell.innerHTML = getWantPillHTML(data.want);
+      wantCell.addEventListener("click", (e) => { e.stopPropagation(); openWantPicker(wantCell, data); });
+      tr.appendChild(wantCell);
+
+      // Received Column (Red/Green Highlight Box)
+      const recCell = document.createElement("td");
+      recCell.className = "col-received";
+      recCell.innerHTML = `
+        <div class="currency-input-box ${getHighlightClass(data.want, data.received)}">
+          <span class="currency-symbol">₹</span>
+          <input type="text" class="currency-field" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${escapeHTML(data.received || '')}">
+        </div>`;
+      setupReceivedInput(recCell, data);
+      tr.appendChild(recCell);
+
+      // Given Column (Completed/Yet)
+      const givenCell = document.createElement("td");
+      givenCell.className = "col-given"; 
+      givenCell.innerHTML = getGivenPillHTML(data.given);
+      givenCell.addEventListener("click", (e) => { e.stopPropagation(); openGivenPicker(givenCell, data); });
+      tr.appendChild(givenCell);
+
+      // Remaining Column (Auto-updates)
+      const remCell = document.createElement("td");
+      remCell.className = "col-remaining";
+      remCell.textContent = data.remaining;
+      tr.appendChild(remCell);
+
+      attachLongPressEvents(tr, data);
+      return tr;
+    }
+
+    function getWantPillHTML(val) {
+      if (val === "Yes") return `<span class="pill-badge yes">Yes</span>`;
+      if (val === "No") return `<span class="pill-badge no">No</span>`;
+      return `<span class="pill-placeholder">- tap -</span>`;
+    }
+
+    function getGivenPillHTML(val) {
+      if (val === "Completed") return `<span class="pill-badge completed">Completed</span>`;
+      if (val === "Yet") return `<span class="pill-badge yet">Yet</span>`;
+      return `<span class="pill-placeholder">- tap -</span>`;
+    }
+
+    function getHighlightClass(want, received) {
+      if (want === "Yes") return (!received || received.toString().trim() === "") ? "highlight-red" : "highlight-green";
+      return "";
+    }
+
+    function updateRowUI(rowElem, data) {
+      // Toggle strikethrough class on row
+      if (data.given === "Completed") {
+          rowElem.classList.add("row-completed");
+      } else {
+          rowElem.classList.remove("row-completed");
+      }
+
+      // Update Red/Green Highlight on Received input based on Want
+      const box = rowElem.querySelector(".currency-input-box");
+      if (box) box.className = `currency-input-box ${getHighlightClass(data.want, data.received)}`;
+      
+      // Update Remaining Visuals
+      const remCell = rowElem.querySelector(".col-remaining");
+      if (remCell) remCell.textContent = data.remaining;
+    }
+
+    function setupReceivedInput(cell, data) {
+      const input = cell.querySelector("input");
+      input.addEventListener("input", (e) => {
+        let clean = e.target.value.replace(/[^0-9]/g, "");
+        input.value = clean.length > 0 ? parseInt(clean, 10).toLocaleString("en-IN") : "";
+      });
+      input.addEventListener("blur", (e) => {
+        if (e.target.value !== (data.received || "")) {
+          const oldVal = data.received || "0";
+          data.received = e.target.value;
+          
+          // Instantly Auto Calc Remaining upon typing Received if Want is Yes
+          if (data.want === "Yes") {
+            let cleanRec = data.received.toString().replace(/,/g, "").replace(/[^0-9]/g, "");
+            let receivedNum = parseInt(cleanRec, 10) || 0;
+            data.remaining = (160 - receivedNum).toString();
+          } else {
+            data.remaining = "";
+          }
+
+          autoSaveRow(data.id, data, true, `Updated Received for ${data.name} (₹${oldVal} ➔ ₹${data.received || '0'})`);
+          updateRowUI(cell.closest("tr"), data);
+        }
+      });
+    }
+
+    // --- WANT POPOVER LOGIC ---
+    const wantPopover = document.getElementById("wantPopover");
+    function openWantPicker(cell, data) {
+      document.getElementById("givenPopover").style.display = "none";
+      currentTargetWantCell = cell; currentDataRef = data;
+      const rect = cell.getBoundingClientRect();
+      wantPopover.style.display = "flex";
+      wantPopover.style.top = `${rect.bottom + window.scrollY + 6}px`;
+      wantPopover.style.left = `${Math.max(10, rect.left + window.scrollX - 50)}px`;
+    }
+    
+    function setWantValue(value) {
+      if (!currentTargetWantCell || !currentDataRef) return;
+      if (currentDataRef.want !== value) {
+        currentDataRef.want = value;
+
+        // Recalculate remaining based on the new Want value
+        if (currentDataRef.want === "Yes") {
+          let cleanRec = (currentDataRef.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
+          let receivedNum = parseInt(cleanRec, 10) || 0;
+          currentDataRef.remaining = (160 - receivedNum).toString();
+        } else {
+          currentDataRef.remaining = "";
+        }
+
+        currentTargetWantCell.innerHTML = getWantPillHTML(value);
+        updateRowUI(currentTargetWantCell.closest("tr"), currentDataRef);
+        autoSaveRow(currentDataRef.id, currentDataRef, true, `Set Want to '${value || 'Cleared'}' for ${currentDataRef.name}`);
+      }
+      wantPopover.style.display = "none";
+    }
+
+    document.getElementById("wantYesBtn").addEventListener("click", () => setWantValue("Yes"));
+    document.getElementById("wantNoBtn").addEventListener("click", () => setWantValue("No"));
+    document.getElementById("wantClearBtn").addEventListener("click", () => setWantValue(""));
+
+
+    // --- GIVEN POPOVER LOGIC ---
+    const givenPopover = document.getElementById("givenPopover");
+    function openGivenPicker(cell, data) {
+      document.getElementById("wantPopover").style.display = "none";
+      currentTargetGivenCell = cell; currentDataRef = data;
+      const rect = cell.getBoundingClientRect();
+      givenPopover.style.display = "flex";
+      givenPopover.style.top = `${rect.bottom + window.scrollY + 6}px`;
+      givenPopover.style.left = `${Math.max(10, rect.left + window.scrollX - 50)}px`;
+    }
+    
+    function setGivenValue(value) {
+      if (!currentTargetGivenCell || !currentDataRef) return;
+      if (currentDataRef.given !== value) {
+        currentDataRef.given = value;
+        currentTargetGivenCell.innerHTML = getGivenPillHTML(value);
+        updateRowUI(currentTargetGivenCell.closest("tr"), currentDataRef);
+        autoSaveRow(currentDataRef.id, currentDataRef, true, `Set Given to '${value || 'Cleared'}' for ${currentDataRef.name}`);
+      }
+      givenPopover.style.display = "none";
+    }
+
+    // FIX: these IDs now match the buttons in the HTML (previously a mismatch threw an
+    // error here and stopped the rest of the script, so nothing was loaded/saved).
+    document.getElementById("givenCompletedBtn").addEventListener("click", () => setGivenValue("Completed"));
+    document.getElementById("givenYetBtn").addEventListener("click", () => setGivenValue("Yet"));
+    document.getElementById("givenClearBtn").addEventListener("click", () => setGivenValue(""));
+    
+    // Close popovers on outside click
+    document.addEventListener("click", (e) => { 
+      if (!wantPopover.contains(e.target) && !e.target.closest(".col-want")) wantPopover.style.display = "none"; 
+      if (!givenPopover.contains(e.target) && !e.target.closest(".col-given")) givenPopover.style.display = "none"; 
+    });
+
+
+    // --- LONG PRESS DELETE & MODALS ---
+    let pressTimer;
+    function attachLongPressEvents(row, data) {
+      const triggers = row.querySelectorAll('.row-header, .col-slno');
+      
+      const startPress = () => {
+        pressTimer = setTimeout(() => {
+          targetRowToDeleteId = data.id; targetRowToDeleteElem = row;
+          document.getElementById("deleteModalDesc").innerHTML = `Delete the record for <b>${escapeHTML(data.name)}</b>?`;
+          document.getElementById("deleteModal").style.display = "flex";
+        }, 650);
+      };
+      
+      const clearPress = () => clearTimeout(pressTimer);
+      
+      triggers.forEach(trigger => {
+        trigger.addEventListener("touchstart", (e) => { startPress(); }, {passive: true});
+        trigger.addEventListener("touchend", clearPress); 
+        trigger.addEventListener("touchmove", clearPress);
+        trigger.addEventListener("mousedown", (e) => { if(e.button===0) startPress(); });
+        trigger.addEventListener("mouseup", clearPress); 
+        trigger.addEventListener("mouseleave", clearPress);
+        trigger.addEventListener("contextmenu", (e) => e.preventDefault());
+      });
+    }
+
+    document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
+      if (targetRowToDeleteId) {
+        const name = targetRowToDeleteElem.querySelector(".col-name").textContent;
+        await deleteDoc(doc(db, DB_COLLECTION, targetRowToDeleteId));
+        logHistory("DELETE", `Deleted student record: ${name}`);
+        document.getElementById("deleteModal").style.display = "none";
+      }
+    });
+    document.getElementById("cancelDeleteBtn").addEventListener("click", () => document.getElementById("deleteModal").style.display = "none");
+
+    const addNameModal = document.getElementById("addNameModal");
+    const showAdd = () => { addNameModal.style.display="flex"; setTimeout(()=> document.getElementById("newStudentNameInput").focus(), 100); };
+    document.getElementById("btnOpenAddModal").addEventListener("click", showAdd);
+    document.getElementById("fabAdd").addEventListener("click", showAdd);
+    document.getElementById("cancelAddBtn").addEventListener("click", () => addNameModal.style.display="none");
+    
+    document.getElementById("confirmAddBtn").addEventListener("click", async () => {
+      const name = document.getElementById("newStudentNameInput").value.trim();
+      if (name) {
+        const id = `s_${Date.now()}`;
+        // Changed remaining default from "165" to "" since Want is empty initially
+        await setDoc(doc(db, DB_COLLECTION, id), { id, slNo: 999, name, want: "", received: "", given: "", remaining: "" });
+        logHistory("ADD", `Added new student: ${name}`);
+        document.getElementById("newStudentNameInput").value = "";
+      }
+      addNameModal.style.display="none";
+    });
+
+    // INSTANT LOCAL LOAD
+    function renderLocalData() {
+        sheetBody.innerHTML = "";
+        STUDENT_NAMES.forEach((name, i) => {
+            // Changed remaining default from "165" to "" since Want is empty initially
+            const data = { id: `s_init_${i.toString().padStart(3, '0')}`, slNo: i + 1, name: name, want: "", received: "", given: "", remaining: "" };
+            sheetBody.appendChild(buildRow(data));
+        });
+        document.getElementById("rowCountBadge").textContent = STUDENT_NAMES.length;
+    }
+
+    renderLocalData(); // Render instantly so the user isn't stuck waiting
+
+    // ONE-TIME ROSTER SYNC: pushes the PDF names into Firestore for everyone.
+    //  - missing student rows are created
+    //  - rows still carrying the old spelling are renamed
+    //  - names someone edited by hand, and all Want/Received/Given data, are left untouched
+    async function syncRoster(existingDocs) {
+      const metaRef = doc(db, DB_META, ROSTER_VERSION);
+      const metaSnap = await getDoc(metaRef);
+      if (metaSnap.exists()) return;
+
+      const byId = new Map(existingDocs.map(d => [d.id, d]));
+      const writes = [];
+      let created = 0, renamed = 0;
+
+      STUDENT_NAMES.forEach((name, i) => {
+        const id = `s_init_${i.toString().padStart(3, '0')}`;
+        const existing = byId.get(id);
+        if (!existing) {
+          created++;
+          writes.push(setDoc(doc(db, DB_COLLECTION, id), {
+            // Changed remaining default from "165" to ""
+            id, slNo: i + 1, name, want: "", received: "", given: "", remaining: ""
+          }));
+        } else if (existing.name !== name && existing.name === OLD_STUDENT_NAMES[i]) {
+          renamed++;
+          writes.push(setDoc(doc(db, DB_COLLECTION, id), { name }, { merge: true }));
+        }
+      });
+
+      await Promise.all(writes);
+      await setDoc(metaRef, { done: true, by: currentUser, at: serverTimestamp(), count: STUDENT_NAMES.length });
+      logHistory("ROSTER", `CS-A roster synced from attendance PDF (${STUDENT_NAMES.length} students; ${created} added, ${renamed} names corrected).`);
+    }
+
+    async function initFirebaseData() {
+      try {
+        const snapshot = await getDocs(collection(db, DB_COLLECTION));
+        const existingDocs = snapshot.docs.map(d => d.data());
+
+        await syncRoster(existingDocs);
+        
+        initialLoadComplete = true; // DB is ready, safe to track saves/history now
+
+        onSnapshot(collection(db, DB_COLLECTION), (querySnapshot) => {
+          let students = [];
+          querySnapshot.forEach(d => students.push(d.data()));
+          
+          if (students.length === 0) return; // Prevent screen wiping if firebase randomly returns empty
+
+          students.sort((a, b) => a.slNo - b.slNo || a.id.localeCompare(b.id));
+
+          sheetBody.innerHTML = "";
+          students.forEach((data, index) => {
+            const correctSlNo = index + 1;
+            const needsRenumber = data.slNo !== correctSlNo;
+            data.slNo = correctSlNo; 
+            sheetBody.appendChild(buildRow(data));
+            if (needsRenumber) {
+                setDoc(doc(db, DB_COLLECTION, data.id), { slNo: correctSlNo }, { merge: true }); 
+            }
+          });
+          document.getElementById("rowCountBadge").textContent = students.length;
+        });
+
+      } catch (error) {
+        console.error("Firebase Init Error (Running Offline Mode):", error);
+      }
+    }
+
+    initFirebaseData(); // Syncs silently in background
+
+    // --- DRAGGABLE HISTORY LOG ---
+    const historyWindow = document.getElementById("historyWindow");
+    const historyHeader = document.getElementById("historyHeader");
+    let isDragging = false, startX, startY, initialLeft, initialTop;
+
+    const startDrag = (e) => {
+      isDragging = true;
+      startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+      startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+      initialLeft = historyWindow.offsetLeft;
+      initialTop = historyWindow.offsetTop;
+    };
+    
+    historyHeader.addEventListener("mousedown", startDrag);
+    historyHeader.addEventListener("touchstart", startDrag, {passive:true});
+
+    const onDrag = (e) => {
+      if(isDragging) {
+        const currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
+        const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+        historyWindow.style.left = `${initialLeft + currentX - startX}px`;
+        historyWindow.style.top = `${initialTop + currentY - startY}px`;
+      }
+    };
+    
+    document.addEventListener("mousemove", onDrag);
+    document.addEventListener("touchmove", onDrag, {passive:true});
+    const stopDrag = () => isDragging = false;
+    document.addEventListener("mouseup", stopDrag);
+    document.addEventListener("touchend", stopDrag);
+
+    let historyUnsub = null;
+    document.getElementById("btnHistory").addEventListener("click", () => {
+      historyWindow.style.display = "flex";
+      if (historyUnsub) historyUnsub();
+      const q = query(collection(db, DB_HISTORY), orderBy("timestamp", "desc"));
+      historyUnsub = onSnapshot(q, (snap) => {
+        const body = document.getElementById("historyBody");
+        body.innerHTML = "";
+        snap.forEach(docSnap => {
+          const log = docSnap.data();
+          const time = log.timestamp ? log.timestamp.toDate().toLocaleString() : "Just now";
+          body.innerHTML += `
+            <div class="history-card">
+              <div class="meta"><span class="user">${escapeHTML(log.user)}</span> • ${time} • <b>${escapeHTML(log.action)}</b></div>
+              <div>${escapeHTML(log.details)}</div>
+            </div>
+          `;
+        });
+        if(snap.empty) body.innerHTML = `<div style="text-align:center; color:#999;">No history found.</div>`;
+      });
+    });
+
+    document.getElementById("closeHistoryBtn").addEventListener("click", () => historyWindow.style.display = "none");
+  </script>
+</body>
+</html>
