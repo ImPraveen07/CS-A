@@ -468,28 +468,33 @@
   </div>
 
   <script type="module">
+    // Imported directly via CDNs so it works in plain HTML
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { 
       getFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, 
       onSnapshot, query, orderBy, serverTimestamp, addDoc 
     } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+    // 🔴 YOUR NEW CONFIGURATION APPLIED HERE 🔴
     const firebaseConfig = {
-      apiKey: "AIzaSyBwEhCK0dpslmSHdL6OsAqJUM7ZUmtLqvU",
-      authDomain: "toyou-a80b2.firebaseapp.com",
-      projectId: "toyou-a80b2",
-      storageBucket: "toyou-a80b2.firebasestorage.app",
-      messagingSenderId: "77162611167",
-      appId: "1:77162611167:web:3dc6d01aa9dcd4bdc0046a"
+      apiKey: "AIzaSyC9rehsf-0jkb9dAeT1-0Z1C-yRJ0YI9dA",
+      authDomain: "gymnm-ce84b.firebaseapp.com",
+      databaseURL: "https://gymnm-ce84b-default-rtdb.firebaseio.com",
+      projectId: "gymnm-ce84b",
+      storageBucket: "gymnm-ce84b.firebasestorage.app",
+      messagingSenderId: "474926929394",
+      appId: "1:474926929394:web:6abdb807caba2751a5c76b",
+      measurementId: "G-6R9S8LYZNF"
     };
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    const DB_COLLECTION = "cs_a_ledger_students";
-    const DB_HISTORY = "cs_a_ledger_history";
-    const DB_META = "cs_a_ledger_meta";
-    const ROSTER_VERSION = "roster_v2"; // bump this to re-run the roster sync
+    // 🔴 DYNAMIC COLLECTIONS 🔴
+    const DB_COLLECTION = "dynamic_students_ledger";
+    const DB_HISTORY = "dynamic_history_ledger";
+    const DB_META = "dynamic_ledger_meta";
+    const ROSTER_VERSION = "roster_v1";
 
     let currentUser = localStorage.getItem("cs_a_username");
     if (!currentUser) {
@@ -497,7 +502,6 @@
       localStorage.setItem("cs_a_username", currentUser);
     }
 
-    // Official CS-A roster, exactly as in "S1 CS A - Attendance" PDF (62 students)
     const STUDENT_NAMES = [
       "AADIL AMEEN V S", "ABDUL BASITH A", "ADHIL MUHAMMED N", "AISHA SOOFIYA S", "AKSHAY KOWSIK",
       "AMALKHAIS N", "AMEEN C N", "ANISAR ANSARI", "ANSIYA T Y", "ARATHI BABU",
@@ -514,39 +518,22 @@
       "SUHAIB BIN KASIM", "SWATHY R"
     ];
 
-    const OLD_STUDENT_NAMES = [
-      "AADIL AMEEN VS", "ABDUL BASITH A", "ADHIL MUHAMMED N", "AISHA SOOFIYA S", "AKSHAY KOWSIK",
-      "AMALKHAIS N", "AMEEN CN", "ANISAR ANSARI", "ANSIYATY", "ARATHI BABU", "ASHINA N", "ASIYA MM", 
-      "ATHULYA SHIBU", "AYISHA JAWAHIRAH KM", "DHIYA NAZARIN K K", "DIYA FATHIMA", "FABI FAZAL", "FAJHA KTK", 
-      "FARHAN ARSHEED", "FARISA K M", "FARIZ AIDEN S", "FATHIMA AFRA V", "FATHIMA DEHABIYA P S", "FATHIMA FARHANATS", 
-      "FATHIMA FARSANA", "FATHIMA FAYIZA V A", "FATHIMA KA", "FATHIMA RIYA K", "FATHIMA SHEENA", "FATHIMATM",
-      "FAYIZ SAFEER VS", "FIDHA FATHIMA A", "FIDHA PM", "FIZA MAYINKUTTY", "HAAMID IBRAHIM KS", "HADHI ABDUL GAFOOR", 
-      "HAROON RASHEED P", "HIBA ASHRAF PT", "IMRAN NAVAS", "IRFANA FATHIMA NAVAS", "JOSHUA JOSEPH VJ", "MOHAMMED AMAN TZ", 
-      "MOHAMMED HARSHAD", "MOHAMMED YASEEN V M", "MUHAMMED FAADHIL KF", "MUHAMMED FARHAN ON", "MUHAMMED IHSAN KIM", 
-      "MUHAMMED RIHAN KHAN", "MUHAMMED SUFIYAN K", "NABUHAN AHMED SS", "NEHRIN FATHIMA V F", "NISHMA E P", "NIYA VINODKUMAR", 
-      "PAVAN KT", "PRAVEEN P", "RIZA MEHAR KM", "SABIRA B", "SANA P SIYAD", "SANIYA RACHEL BOBBY", "SHANIYA PS",
-      "SUHAIB BIN KASIM", "SWATHY R"
-    ];
-
     const sheetBody = document.getElementById("sheetBody");
     const saveStatus = document.getElementById("saveStatus");
     let currentTargetWantCell = null, currentTargetGivenCell = null;
     let currentDataRef = null;
     let targetRowToDeleteId = null, targetRowToDeleteElem = null;
-    let initialLoadComplete = false;
 
     function escapeHTML(s) {
       return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
     function showSaved() {
-      if(!initialLoadComplete) return; 
       saveStatus.style.opacity = "1";
       setTimeout(() => { saveStatus.style.opacity = "0"; }, 2500);
     }
 
     async function logHistory(action, details) {
-      if(!initialLoadComplete && action !== "INIT" && action !== "ROSTER") return;
       try {
         await addDoc(collection(db, DB_HISTORY), {
           user: currentUser, action: action, details: details, timestamp: serverTimestamp()
@@ -555,93 +542,104 @@
     }
 
     async function autoSaveRow(id, data, logAction = false, logDetails = "") {
-      if(!initialLoadComplete) return;
       try {
         await setDoc(doc(db, DB_COLLECTION, id), data, { merge: true });
         showSaved();
         if (logAction) logHistory("EDIT", logDetails);
-      } catch(e) { console.error("Database Save Error: ", e); }
+      } catch(e) { 
+        console.error("Database Save Error. Did you set Firestore Rules to allow read/write? Error: ", e); 
+      }
     }
 
     function buildRow(data) {
       const tr = document.createElement("tr");
       tr.id = `row-${data.id}`;
       
+      // Bind data object directly to the row to ensure event listeners always see latest data
+      tr._rowData = Object.assign({}, data); 
+      const rowData = tr._rowData;
+      
       // Auto calc remaining value: 160 - received if want is "Yes"
-      if (data.want === "Yes") {
-        let cleanRec = (data.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
+      if (rowData.want === "Yes") {
+        let cleanRec = (rowData.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
         let receivedNum = parseInt(cleanRec, 10) || 0;
-        data.remaining = (160 - receivedNum).toString();
+        rowData.remaining = (160 - receivedNum).toString();
       } else {
-        data.remaining = "";
+        rowData.remaining = "";
       }
       
-      // Apply Strikethrough style if Given is Completed
-      if (data.given === "Completed") {
-          tr.classList.add("row-completed");
-      }
+      if (rowData.given === "Completed") tr.classList.add("row-completed");
       
-      tr.innerHTML += `<td class="row-header sl-index" title="Hold to delete">${data.slNo}</td>`;
-      tr.innerHTML += `<td class="col-slno sl-index" title="Hold to delete">${data.slNo}</td>`;
+      tr.innerHTML += `<td class="row-header sl-index" title="Hold to delete">${rowData.slNo}</td>`;
+      tr.innerHTML += `<td class="col-slno sl-index" title="Hold to delete">${rowData.slNo}</td>`;
       
       const nameCell = document.createElement("td");
       nameCell.className = "col-name"; 
       nameCell.contentEditable = "true"; 
-      nameCell.textContent = data.name;
+      nameCell.textContent = rowData.name;
 
-      // Fix for Enter key linebreaks during edit
-      nameCell.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault(); 
-          nameCell.blur(); 
-        }
-      });
+      nameCell.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameCell.blur(); } });
 
       nameCell.addEventListener("blur", (e) => {
         const newName = e.target.textContent.trim();
-        if (newName && newName !== data.name) {
-          logHistory("EDIT", `Changed name from "${data.name}" to "${newName}"`);
-          data.name = newName; 
-          autoSaveRow(data.id, data);
+        if (newName && newName !== rowData.name) {
+          logHistory("EDIT", `Changed name from "${rowData.name}" to "${newName}"`);
+          rowData.name = newName; 
+          autoSaveRow(rowData.id, rowData);
         } else if (!newName) {
-          // Revert to original if accidentally cleared out
-          e.target.textContent = data.name; 
+          e.target.textContent = rowData.name; 
         }
       });
       tr.appendChild(nameCell);
 
-      // Want Column (Yes/No)
       const wantCell = document.createElement("td");
-      wantCell.className = "col-want"; wantCell.innerHTML = getWantPillHTML(data.want);
-      wantCell.addEventListener("click", (e) => { e.stopPropagation(); openWantPicker(wantCell, data); });
+      wantCell.className = "col-want"; wantCell.innerHTML = getWantPillHTML(rowData.want);
+      wantCell.addEventListener("click", (e) => { e.stopPropagation(); openWantPicker(wantCell, rowData); });
       tr.appendChild(wantCell);
 
-      // Received Column (Red/Green Highlight Box)
       const recCell = document.createElement("td");
       recCell.className = "col-received";
       recCell.innerHTML = `
-        <div class="currency-input-box ${getHighlightClass(data.want, data.received)}">
+        <div class="currency-input-box ${getHighlightClass(rowData.want, rowData.received)}">
           <span class="currency-symbol">₹</span>
-          <input type="text" class="currency-field" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${escapeHTML(data.received || '')}">
+          <input type="text" class="currency-field" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="${escapeHTML(rowData.received || '')}">
         </div>`;
-      setupReceivedInput(recCell, data);
+      setupReceivedInput(recCell, rowData);
       tr.appendChild(recCell);
 
-      // Given Column (Completed/Yet)
       const givenCell = document.createElement("td");
       givenCell.className = "col-given"; 
-      givenCell.innerHTML = getGivenPillHTML(data.given);
-      givenCell.addEventListener("click", (e) => { e.stopPropagation(); openGivenPicker(givenCell, data); });
+      givenCell.innerHTML = getGivenPillHTML(rowData.given);
+      givenCell.addEventListener("click", (e) => { e.stopPropagation(); openGivenPicker(givenCell, rowData); });
       tr.appendChild(givenCell);
 
-      // Remaining Column (Auto-updates)
       const remCell = document.createElement("td");
       remCell.className = "col-remaining";
-      remCell.textContent = data.remaining;
+      remCell.textContent = rowData.remaining;
       tr.appendChild(remCell);
 
-      attachLongPressEvents(tr, data);
+      attachLongPressEvents(tr, rowData);
       return tr;
+    }
+
+    // 🔴 FIX: Seamless DOM update (Doesn't steal focus) 🔴
+    function updateRowDOM(row, newData) {
+      Object.assign(row._rowData, newData); // Update underlying bound data
+      const data = row._rowData;
+
+      // Update name only if user is not currently typing in it
+      const nameCell = row.querySelector('.col-name');
+      if (document.activeElement !== nameCell) nameCell.textContent = data.name;
+
+      // Update received input only if user is not currently typing in it
+      const recInput = row.querySelector('.currency-field');
+      if (document.activeElement !== recInput) recInput.value = data.received || "";
+
+      // Safe to replace badges instantly
+      row.querySelector('.col-want').innerHTML = getWantPillHTML(data.want);
+      row.querySelector('.col-given').innerHTML = getGivenPillHTML(data.given);
+      
+      updateRowUI(row, data);
     }
 
     function getWantPillHTML(val) {
@@ -662,11 +660,8 @@
     }
 
     function updateRowUI(rowElem, data) {
-      if (data.given === "Completed") {
-          rowElem.classList.add("row-completed");
-      } else {
-          rowElem.classList.remove("row-completed");
-      }
+      if (data.given === "Completed") rowElem.classList.add("row-completed");
+      else rowElem.classList.remove("row-completed");
 
       const box = rowElem.querySelector(".currency-input-box");
       if (box) box.className = `currency-input-box ${getHighlightClass(data.want, data.received)}`;
@@ -700,7 +695,7 @@
       });
     }
 
-    // --- WANT POPOVER LOGIC ---
+    // --- POP-OVERS ---
     const wantPopover = document.getElementById("wantPopover");
     function openWantPicker(cell, data) {
       document.getElementById("givenPopover").style.display = "none";
@@ -715,7 +710,6 @@
       if (!currentTargetWantCell || !currentDataRef) return;
       if (currentDataRef.want !== value) {
         currentDataRef.want = value;
-
         if (currentDataRef.want === "Yes") {
           let cleanRec = (currentDataRef.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
           let receivedNum = parseInt(cleanRec, 10) || 0;
@@ -723,7 +717,6 @@
         } else {
           currentDataRef.remaining = "";
         }
-
         currentTargetWantCell.innerHTML = getWantPillHTML(value);
         updateRowUI(currentTargetWantCell.closest("tr"), currentDataRef);
         autoSaveRow(currentDataRef.id, currentDataRef, true, `Set Want to '${value || 'Cleared'}' for ${currentDataRef.name}`);
@@ -735,7 +728,6 @@
     document.getElementById("wantNoBtn").addEventListener("click", () => setWantValue("No"));
     document.getElementById("wantClearBtn").addEventListener("click", () => setWantValue(""));
 
-    // --- GIVEN POPOVER LOGIC ---
     const givenPopover = document.getElementById("givenPopover");
     function openGivenPicker(cell, data) {
       document.getElementById("wantPopover").style.display = "none";
@@ -766,11 +758,9 @@
       if (!givenPopover.contains(e.target) && !e.target.closest(".col-given")) givenPopover.style.display = "none"; 
     });
 
-    // --- LONG PRESS DELETE & MODALS ---
     let pressTimer;
     function attachLongPressEvents(row, data) {
       const triggers = row.querySelectorAll('.row-header, .col-slno');
-      
       const startPress = () => {
         pressTimer = setTimeout(() => {
           targetRowToDeleteId = data.id; targetRowToDeleteElem = row;
@@ -778,9 +768,7 @@
           document.getElementById("deleteModal").style.display = "flex";
         }, 650);
       };
-      
       const clearPress = () => clearTimeout(pressTimer);
-      
       triggers.forEach(trigger => {
         trigger.addEventListener("touchstart", (e) => { startPress(); }, {passive: true});
         trigger.addEventListener("touchend", clearPress); 
@@ -812,11 +800,8 @@
       const name = document.getElementById("newStudentNameInput").value.trim();
       if (name) {
         const id = `s_${Date.now()}`;
-        
-        // Optimistically close modal and clear immediately to prevent double-clicks
         document.getElementById("newStudentNameInput").value = "";
         addNameModal.style.display="none";
-
         try {
           await setDoc(doc(db, DB_COLLECTION, id), { id, slNo: 999, name, want: "", received: "", given: "", remaining: "" });
           logHistory("ADD", `Added new student: ${name}`);
@@ -828,7 +813,6 @@
       }
     });
 
-    // INSTANT LOCAL LOAD
     function renderLocalData() {
         sheetBody.innerHTML = "";
         STUDENT_NAMES.forEach((name, i) => {
@@ -838,7 +822,7 @@
         document.getElementById("rowCountBadge").textContent = STUDENT_NAMES.length;
     }
 
-    renderLocalData(); // Render instantly so the user isn't stuck waiting
+    renderLocalData(); 
 
     async function syncRoster(existingDocs) {
       const metaRef = doc(db, DB_META, ROSTER_VERSION);
@@ -847,7 +831,7 @@
 
       const byId = new Map(existingDocs.map(d => [d.id, d]));
       const writes = [];
-      let created = 0, renamed = 0;
+      let created = 0;
 
       STUDENT_NAMES.forEach((name, i) => {
         const id = `s_init_${i.toString().padStart(3, '0')}`;
@@ -857,55 +841,65 @@
           writes.push(setDoc(doc(db, DB_COLLECTION, id), {
             id, slNo: i + 1, name, want: "", received: "", given: "", remaining: ""
           }));
-        } else if (existing.name !== name && existing.name === OLD_STUDENT_NAMES[i]) {
-          renamed++;
-          writes.push(setDoc(doc(db, DB_COLLECTION, id), { name }, { merge: true }));
         }
       });
-
-      await Promise.all(writes);
-      await setDoc(metaRef, { done: true, by: currentUser, at: serverTimestamp(), count: STUDENT_NAMES.length });
-      logHistory("ROSTER", `CS-A roster synced from attendance PDF (${STUDENT_NAMES.length} students; ${created} added, ${renamed} names corrected).`);
+      if (writes.length > 0) {
+        await Promise.all(writes);
+        await setDoc(metaRef, { done: true, by: currentUser, at: serverTimestamp(), count: STUDENT_NAMES.length });
+        logHistory("ROSTER", `Roster synced automatically (${created} added).`);
+      }
     }
 
+    // 🔴 FIX: Granular Real-Time Tracker 🔴
     function initFirebaseData() {
-      // START REALTIME LISTENER IMMEDIATELY to prevent saves from being blocked
-      onSnapshot(collection(db, DB_COLLECTION), (querySnapshot) => {
-        initialLoadComplete = true; // DB connected - saves are now allowed
-        
-        let students = [];
-        querySnapshot.forEach(d => students.push(d.data()));
-        
-        if (students.length === 0) return; 
+      onSnapshot(collection(db, DB_COLLECTION), (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          const data = change.doc.data();
+          const existingRow = document.getElementById(`row-${data.id}`);
 
-        students.sort((a, b) => a.slNo - b.slNo || a.id.localeCompare(b.id));
-
-        sheetBody.innerHTML = "";
-        students.forEach((data, index) => {
-          const correctSlNo = index + 1;
-          const needsRenumber = data.slNo !== correctSlNo;
-          data.slNo = correctSlNo; 
-          
-          sheetBody.appendChild(buildRow(data));
-          
-          if (needsRenumber) {
-              setDoc(doc(db, DB_COLLECTION, data.id), { slNo: correctSlNo }, { merge: true }); 
+          if (change.type === "added" || change.type === "modified") {
+            if (existingRow) {
+               updateRowDOM(existingRow, data); // Seamlessly updates visuals without losing focus
+            } else {
+               sheetBody.appendChild(buildRow(data));
+            }
+          }
+          if (change.type === "removed") {
+            if (existingRow) existingRow.remove();
           }
         });
-        document.getElementById("rowCountBadge").textContent = students.length;
+
+        // Re-sort correctly without destroying DOM
+        const rows = Array.from(sheetBody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const aNo = parseInt(a.querySelector('.col-slno').textContent) || 999;
+          const bNo = parseInt(b.querySelector('.col-slno').textContent) || 999;
+          return aNo - bNo;
+        });
+        rows.forEach((row, idx) => {
+          sheetBody.appendChild(row);
+          // Renumber dynamic rows natively
+          const slCell = row.querySelector('.col-slno');
+          const hrCell = row.querySelector('.row-header');
+          if(slCell && parseInt(slCell.textContent) !== (idx+1)) {
+             slCell.textContent = idx+1;
+             if(hrCell) hrCell.textContent = idx+1;
+             setDoc(doc(db, DB_COLLECTION, row._rowData.id), { slNo: idx+1 }, { merge: true });
+          }
+        });
+        
+        document.getElementById("rowCountBadge").textContent = sheetBody.querySelectorAll('tr').length;
       }, (error) => {
-        console.error("Firebase Listener Error:", error);
-        initialLoadComplete = true; // Failsafe to allow local interactions
+        console.error("Firebase Listener Error. Make sure Rules allow read/write:", error);
       });
 
-      // Run roster sync silently in background
       getDocs(collection(db, DB_COLLECTION)).then(async (snapshot) => {
         const existingDocs = snapshot.docs.map(d => d.data());
         await syncRoster(existingDocs);
       }).catch(e => console.error("Roster Sync Error:", e));
     }
 
-    initFirebaseData(); // Syncs silently in background
+    initFirebaseData(); 
 
     // --- DRAGGABLE HISTORY LOG ---
     const historyWindow = document.getElementById("historyWindow");
