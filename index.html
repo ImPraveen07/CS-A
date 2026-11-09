@@ -172,6 +172,7 @@
       left: 0;
       z-index: 5;
       text-align: center;
+      cursor: pointer;
       user-select: none; 
       -webkit-user-select: none;
       -webkit-touch-callout: none; 
@@ -298,7 +299,7 @@
     }
     .history-header {
       background: #f1f3f4;
-      padding: 14px 16px;
+      padding: 12px 16px;
       border-top-left-radius: 8px;
       border-top-right-radius: 8px;
       display: flex;
@@ -309,7 +310,18 @@
     }
     .history-header:active { cursor: grabbing; }
     .history-title { font-weight: 600; color: #333; font-size: 15px; display: flex; align-items: center; gap: 8px;}
-    .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; }
+    .history-controls { display: flex; align-items: center; gap: 8px; }
+    .clear-history-btn {
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #ef9a9a;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #666; padding: 0 4px; }
     .history-body {
       flex: 1;
       overflow-y: auto;
@@ -322,12 +334,26 @@
       background: #fafafa;
       border: 1px solid #eee;
       border-left: 4px solid var(--primary);
-      padding: 12px;
+      padding: 10px 12px;
       border-radius: 4px;
       font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
     }
-    .history-card .meta { font-size: 11px; color: #888; margin-bottom: 6px; }
+    .history-card .meta { font-size: 11px; color: #888; margin-bottom: 4px; }
     .history-card .user { font-weight: 700; color: #222; }
+    .history-del-btn {
+      background: none;
+      border: none;
+      color: #999;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .history-del-btn:hover { background: #ffebee; color: #c62828; }
 
     /* Floating Action Button (+) */
     .fab-add {
@@ -372,7 +398,6 @@
     .modal-btn.delete { background: #d32f2f; color: white; }
     .modal-btn.primary { background: var(--primary); color: white; }
     .input-field { width: 100%; padding: 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 4px; outline: none; margin-top: 10px; }
-    
   </style>
 </head>
 <body>
@@ -417,7 +442,10 @@
   <div class="history-window" id="historyWindow">
     <div class="history-header" id="historyHeader">
       <div class="history-title">🕒 Edit History Log</div>
-      <button class="close-btn" id="closeHistoryBtn">✕</button>
+      <div class="history-controls">
+        <button class="clear-history-btn" id="clearHistoryBtn" title="Clear all history">Clear All</button>
+        <button class="close-btn" id="closeHistoryBtn">✕</button>
+      </div>
     </div>
     <div class="history-body" id="historyBody">
       <div style="text-align:center; color:#999; margin-top: 20px;">Loading history...</div>
@@ -438,7 +466,7 @@
         </tr>
       </thead>
       <tbody id="sheetBody">
-        <!-- Rows injected here -->
+        <tr><td colspan="7" style="text-align:center; padding: 24px; color:#888;">Loading student list...</td></tr>
       </tbody>
     </table>
   </div>
@@ -468,14 +496,12 @@
   </div>
 
   <script type="module">
-    // Imported directly via CDNs so it works in plain HTML
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
     import { 
       getFirestore, collection, getDocs, getDoc, doc, setDoc, deleteDoc, 
-      onSnapshot, query, orderBy, serverTimestamp, addDoc 
+      onSnapshot, serverTimestamp, addDoc, writeBatch 
     } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-    // 🔴 YOUR NEW CONFIGURATION APPLIED HERE 🔴
     const firebaseConfig = {
       apiKey: "AIzaSyC9rehsf-0jkb9dAeT1-0Z1C-yRJ0YI9dA",
       authDomain: "gymnm-ce84b.firebaseapp.com",
@@ -490,7 +516,6 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // 🔴 DYNAMIC COLLECTIONS 🔴
     const DB_COLLECTION = "dynamic_students_ledger";
     const DB_HISTORY = "dynamic_history_ledger";
     const DB_META = "dynamic_ledger_meta";
@@ -520,9 +545,11 @@
 
     const sheetBody = document.getElementById("sheetBody");
     const saveStatus = document.getElementById("saveStatus");
+    const longpressBanner = document.getElementById("longpressBanner");
     let currentTargetWantCell = null, currentTargetGivenCell = null;
     let currentDataRef = null;
     let targetRowToDeleteId = null, targetRowToDeleteElem = null;
+    let initialSnapshotLoaded = false;
 
     function escapeHTML(s) {
       return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -533,68 +560,102 @@
       setTimeout(() => { saveStatus.style.opacity = "0"; }, 2500);
     }
 
+    function calculateRemaining(want, received) {
+      if (want === "Yes") {
+        const cleanRec = (received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
+        const receivedNum = parseInt(cleanRec, 10) || 0;
+        return (160 - receivedNum).toString();
+      }
+      return "";
+    }
+
     async function logHistory(action, details) {
       try {
         await addDoc(collection(db, DB_HISTORY), {
-          user: currentUser, action: action, details: details, timestamp: serverTimestamp()
+          user: currentUser,
+          action: action,
+          details: details,
+          timestamp: serverTimestamp(),
+          clientTime: Date.now()
         });
-      } catch (e) { console.error("History Log Error: ", e); }
+      } catch (e) {
+        console.error("History Log Error: ", e);
+      }
     }
 
     async function autoSaveRow(id, data, logAction = false, logDetails = "") {
+      if (!id) return;
       try {
-        await setDoc(doc(db, DB_COLLECTION, id), data, { merge: true });
+        const payload = {
+          id: id,
+          slNo: data.slNo || 999,
+          name: data.name || "",
+          want: data.want || "",
+          received: data.received || "",
+          given: data.given || "",
+          remaining: calculateRemaining(data.want, data.received)
+        };
+        await setDoc(doc(db, DB_COLLECTION, id), payload, { merge: true });
         showSaved();
-        if (logAction) logHistory("EDIT", logDetails);
-      } catch(e) { 
-        console.error("Database Save Error. Did you set Firestore Rules to allow read/write? Error: ", e); 
+        if (logAction) await logHistory("EDIT", logDetails);
+      } catch (e) {
+        console.error("Database Save Error: ", e);
       }
     }
 
     function buildRow(data) {
       const tr = document.createElement("tr");
       tr.id = `row-${data.id}`;
-      
-      // Bind data object directly to the row to ensure event listeners always see latest data
-      tr._rowData = Object.assign({}, data); 
+
+      tr._rowData = Object.assign({}, data);
       const rowData = tr._rowData;
-      
-      // Auto calc remaining value: 160 - received if want is "Yes"
-      if (rowData.want === "Yes") {
-        let cleanRec = (rowData.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
-        let receivedNum = parseInt(cleanRec, 10) || 0;
-        rowData.remaining = (160 - receivedNum).toString();
-      } else {
-        rowData.remaining = "";
-      }
-      
+      rowData.remaining = calculateRemaining(rowData.want, rowData.received);
+
       if (rowData.given === "Completed") tr.classList.add("row-completed");
-      
-      tr.innerHTML += `<td class="row-header sl-index" title="Hold to delete">${rowData.slNo}</td>`;
-      tr.innerHTML += `<td class="col-slno sl-index" title="Hold to delete">${rowData.slNo}</td>`;
-      
+
+      const hrTd = document.createElement("td");
+      hrTd.className = "row-header sl-index";
+      hrTd.title = "Hold to delete";
+      hrTd.textContent = rowData.slNo;
+      tr.appendChild(hrTd);
+
+      const slTd = document.createElement("td");
+      slTd.className = "col-slno sl-index";
+      slTd.title = "Hold to delete";
+      slTd.textContent = rowData.slNo;
+      tr.appendChild(slTd);
+
       const nameCell = document.createElement("td");
-      nameCell.className = "col-name"; 
-      nameCell.contentEditable = "true"; 
+      nameCell.className = "col-name";
+      nameCell.contentEditable = "true";
       nameCell.textContent = rowData.name;
 
-      nameCell.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameCell.blur(); } });
+      nameCell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          nameCell.blur();
+        }
+      });
 
       nameCell.addEventListener("blur", (e) => {
         const newName = e.target.textContent.trim();
         if (newName && newName !== rowData.name) {
-          logHistory("EDIT", `Changed name from "${rowData.name}" to "${newName}"`);
-          rowData.name = newName; 
-          autoSaveRow(rowData.id, rowData);
+          const oldName = rowData.name;
+          rowData.name = newName;
+          autoSaveRow(rowData.id, rowData, true, `Changed name from "${oldName}" to "${newName}"`);
         } else if (!newName) {
-          e.target.textContent = rowData.name; 
+          e.target.textContent = rowData.name;
         }
       });
       tr.appendChild(nameCell);
 
       const wantCell = document.createElement("td");
-      wantCell.className = "col-want"; wantCell.innerHTML = getWantPillHTML(rowData.want);
-      wantCell.addEventListener("click", (e) => { e.stopPropagation(); openWantPicker(wantCell, rowData); });
+      wantCell.className = "col-want";
+      wantCell.innerHTML = getWantPillHTML(rowData.want);
+      wantCell.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openWantPicker(wantCell, rowData);
+      });
       tr.appendChild(wantCell);
 
       const recCell = document.createElement("td");
@@ -608,9 +669,12 @@
       tr.appendChild(recCell);
 
       const givenCell = document.createElement("td");
-      givenCell.className = "col-given"; 
+      givenCell.className = "col-given";
       givenCell.innerHTML = getGivenPillHTML(rowData.given);
-      givenCell.addEventListener("click", (e) => { e.stopPropagation(); openGivenPicker(givenCell, rowData); });
+      givenCell.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openGivenPicker(givenCell, rowData);
+      });
       tr.appendChild(givenCell);
 
       const remCell = document.createElement("td");
@@ -622,23 +686,20 @@
       return tr;
     }
 
-    // 🔴 FIX: Seamless DOM update (Doesn't steal focus) 🔴
     function updateRowDOM(row, newData) {
-      Object.assign(row._rowData, newData); // Update underlying bound data
+      Object.assign(row._rowData, newData);
       const data = row._rowData;
+      data.remaining = calculateRemaining(data.want, data.received);
 
-      // Update name only if user is not currently typing in it
-      const nameCell = row.querySelector('.col-name');
+      const nameCell = row.querySelector(".col-name");
       if (document.activeElement !== nameCell) nameCell.textContent = data.name;
 
-      // Update received input only if user is not currently typing in it
-      const recInput = row.querySelector('.currency-field');
+      const recInput = row.querySelector(".currency-field");
       if (document.activeElement !== recInput) recInput.value = data.received || "";
 
-      // Safe to replace badges instantly
-      row.querySelector('.col-want').innerHTML = getWantPillHTML(data.want);
-      row.querySelector('.col-given').innerHTML = getGivenPillHTML(data.given);
-      
+      row.querySelector(".col-want").innerHTML = getWantPillHTML(data.want);
+      row.querySelector(".col-given").innerHTML = getGivenPillHTML(data.given);
+
       updateRowUI(row, data);
     }
 
@@ -665,7 +726,7 @@
 
       const box = rowElem.querySelector(".currency-input-box");
       if (box) box.className = `currency-input-box ${getHighlightClass(data.want, data.received)}`;
-      
+
       const remCell = rowElem.querySelector(".col-remaining");
       if (remCell) remCell.textContent = data.remaining;
     }
@@ -673,24 +734,17 @@
     function setupReceivedInput(cell, data) {
       const input = cell.querySelector("input");
       input.addEventListener("input", (e) => {
-        let clean = e.target.value.replace(/[^0-9]/g, "");
+        const clean = e.target.value.replace(/[^0-9]/g, "");
         input.value = clean.length > 0 ? parseInt(clean, 10).toLocaleString("en-IN") : "";
       });
       input.addEventListener("blur", (e) => {
         if (e.target.value !== (data.received || "")) {
           const oldVal = data.received || "0";
           data.received = e.target.value;
-          
-          if (data.want === "Yes") {
-            let cleanRec = data.received.toString().replace(/,/g, "").replace(/[^0-9]/g, "");
-            let receivedNum = parseInt(cleanRec, 10) || 0;
-            data.remaining = (160 - receivedNum).toString();
-          } else {
-            data.remaining = "";
-          }
+          data.remaining = calculateRemaining(data.want, data.received);
 
-          autoSaveRow(data.id, data, true, `Updated Received for ${data.name} (₹${oldVal} ➔ ₹${data.received || '0'})`);
           updateRowUI(cell.closest("tr"), data);
+          autoSaveRow(data.id, data, true, `Updated Received for ${data.name} (₹${oldVal} ➔ ₹${data.received || '0'})`);
         }
       });
     }
@@ -699,24 +753,19 @@
     const wantPopover = document.getElementById("wantPopover");
     function openWantPicker(cell, data) {
       document.getElementById("givenPopover").style.display = "none";
-      currentTargetWantCell = cell; currentDataRef = data;
+      currentTargetWantCell = cell;
+      currentDataRef = data;
       const rect = cell.getBoundingClientRect();
       wantPopover.style.display = "flex";
       wantPopover.style.top = `${rect.bottom + window.scrollY + 6}px`;
       wantPopover.style.left = `${Math.max(10, rect.left + window.scrollX - 50)}px`;
     }
-    
+
     function setWantValue(value) {
       if (!currentTargetWantCell || !currentDataRef) return;
       if (currentDataRef.want !== value) {
         currentDataRef.want = value;
-        if (currentDataRef.want === "Yes") {
-          let cleanRec = (currentDataRef.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
-          let receivedNum = parseInt(cleanRec, 10) || 0;
-          currentDataRef.remaining = (160 - receivedNum).toString();
-        } else {
-          currentDataRef.remaining = "";
-        }
+        currentDataRef.remaining = calculateRemaining(currentDataRef.want, currentDataRef.received);
         currentTargetWantCell.innerHTML = getWantPillHTML(value);
         updateRowUI(currentTargetWantCell.closest("tr"), currentDataRef);
         autoSaveRow(currentDataRef.id, currentDataRef, true, `Set Want to '${value || 'Cleared'}' for ${currentDataRef.name}`);
@@ -731,13 +780,14 @@
     const givenPopover = document.getElementById("givenPopover");
     function openGivenPicker(cell, data) {
       document.getElementById("wantPopover").style.display = "none";
-      currentTargetGivenCell = cell; currentDataRef = data;
+      currentTargetGivenCell = cell;
+      currentDataRef = data;
       const rect = cell.getBoundingClientRect();
       givenPopover.style.display = "flex";
       givenPopover.style.top = `${rect.bottom + window.scrollY + 6}px`;
       givenPopover.style.left = `${Math.max(10, rect.left + window.scrollX - 50)}px`;
     }
-    
+
     function setGivenValue(value) {
       if (!currentTargetGivenCell || !currentDataRef) return;
       if (currentDataRef.given !== value) {
@@ -752,209 +802,341 @@
     document.getElementById("givenCompletedBtn").addEventListener("click", () => setGivenValue("Completed"));
     document.getElementById("givenYetBtn").addEventListener("click", () => setGivenValue("Yet"));
     document.getElementById("givenClearBtn").addEventListener("click", () => setGivenValue(""));
-    
-    document.addEventListener("click", (e) => { 
-      if (!wantPopover.contains(e.target) && !e.target.closest(".col-want")) wantPopover.style.display = "none"; 
-      if (!givenPopover.contains(e.target) && !e.target.closest(".col-given")) givenPopover.style.display = "none"; 
+
+    document.addEventListener("click", (e) => {
+      if (!wantPopover.contains(e.target) && !e.target.closest(".col-want")) wantPopover.style.display = "none";
+      if (!givenPopover.contains(e.target) && !e.target.closest(".col-given")) givenPopover.style.display = "none";
     });
 
+    // --- LONG PRESS TO DELETE ROW ---
     let pressTimer;
     function attachLongPressEvents(row, data) {
-      const triggers = row.querySelectorAll('.row-header, .col-slno');
+      const triggers = row.querySelectorAll(".row-header, .col-slno");
       const startPress = () => {
+        longpressBanner.style.display = "block";
         pressTimer = setTimeout(() => {
-          targetRowToDeleteId = data.id; targetRowToDeleteElem = row;
-          document.getElementById("deleteModalDesc").innerHTML = `Delete the record for <b>${escapeHTML(data.name)}</b>?`;
+          longpressBanner.style.display = "none";
+          targetRowToDeleteId = row._rowData.id;
+          targetRowToDeleteElem = row;
+          document.getElementById("deleteModalDesc").innerHTML = `Delete the record for <b>${escapeHTML(row._rowData.name)}</b>?`;
           document.getElementById("deleteModal").style.display = "flex";
-        }, 650);
+        }, 600);
       };
-      const clearPress = () => clearTimeout(pressTimer);
+      const clearPress = () => {
+        clearTimeout(pressTimer);
+        longpressBanner.style.display = "none";
+      };
       triggers.forEach(trigger => {
-        trigger.addEventListener("touchstart", (e) => { startPress(); }, {passive: true});
-        trigger.addEventListener("touchend", clearPress); 
+        trigger.addEventListener("touchstart", startPress, { passive: true });
+        trigger.addEventListener("touchend", clearPress);
         trigger.addEventListener("touchmove", clearPress);
-        trigger.addEventListener("mousedown", (e) => { if(e.button===0) startPress(); });
-        trigger.addEventListener("mouseup", clearPress); 
+        trigger.addEventListener("mousedown", (e) => { if (e.button === 0) startPress(); });
+        trigger.addEventListener("mouseup", clearPress);
         trigger.addEventListener("mouseleave", clearPress);
         trigger.addEventListener("contextmenu", (e) => e.preventDefault());
       });
     }
 
+    function resortAndRenumberDOM() {
+      const rows = Array.from(sheetBody.querySelectorAll("tr[id^='row-']"));
+      rows.sort((a, b) => {
+        const aNo = Number(a._rowData?.slNo) || 999;
+        const bNo = Number(b._rowData?.slNo) || 999;
+        if (aNo !== bNo) return aNo - bNo;
+        return String(a._rowData?.id || "").localeCompare(String(b._rowData?.id || ""));
+      });
+
+      rows.forEach((row, idx) => {
+        sheetBody.appendChild(row);
+        const newSl = idx + 1;
+        row._rowData.slNo = newSl;
+        const slCell = row.querySelector(".col-slno");
+        const hrCell = row.querySelector(".row-header");
+        if (slCell) slCell.textContent = newSl;
+        if (hrCell) hrCell.textContent = newSl;
+      });
+
+      document.getElementById("rowCountBadge").textContent = rows.length;
+    }
+
     document.getElementById("confirmDeleteBtn").addEventListener("click", async () => {
-      if (targetRowToDeleteId) {
-        const name = targetRowToDeleteElem.querySelector(".col-name").textContent;
-        await deleteDoc(doc(db, DB_COLLECTION, targetRowToDeleteId));
-        logHistory("DELETE", `Deleted student record: ${name}`);
-        document.getElementById("deleteModal").style.display = "none";
+      if (!targetRowToDeleteId) return;
+
+      const idToDelete = targetRowToDeleteId;
+      const rowElem = targetRowToDeleteElem;
+      const studentName = rowElem?._rowData?.name || rowElem?.querySelector(".col-name")?.textContent || "Student";
+
+      document.getElementById("deleteModal").style.display = "none";
+      targetRowToDeleteId = null;
+      targetRowToDeleteElem = null;
+
+      if (rowElem) rowElem.remove();
+      resortAndRenumberDOM();
+
+      try {
+        await deleteDoc(doc(db, DB_COLLECTION, idToDelete));
+        await logHistory("DELETE", `Deleted student record: ${studentName}`);
+
+        // Persist updated Sl. No. order cleanly in a single batch
+        const batch = writeBatch(db);
+        const remainingRows = Array.from(sheetBody.querySelectorAll("tr[id^='row-']"));
+        remainingRows.forEach((r, idx) => {
+          if (r._rowData?.id) {
+            batch.set(doc(db, DB_COLLECTION, r._rowData.id), { slNo: idx + 1 }, { merge: true });
+          }
+        });
+        await batch.commit();
+        showSaved();
+      } catch (err) {
+        console.error("Failed to delete student:", err);
       }
     });
-    document.getElementById("cancelDeleteBtn").addEventListener("click", () => document.getElementById("deleteModal").style.display = "none");
 
+    document.getElementById("cancelDeleteBtn").addEventListener("click", () => {
+      document.getElementById("deleteModal").style.display = "none";
+    });
+
+    // --- ADD STUDENT MODAL ---
     const addNameModal = document.getElementById("addNameModal");
-    const showAdd = () => { addNameModal.style.display="flex"; setTimeout(()=> document.getElementById("newStudentNameInput").focus(), 100); };
+    const showAdd = () => {
+      addNameModal.style.display = "flex";
+      setTimeout(() => document.getElementById("newStudentNameInput").focus(), 100);
+    };
     document.getElementById("btnOpenAddModal").addEventListener("click", showAdd);
     document.getElementById("fabAdd").addEventListener("click", showAdd);
-    document.getElementById("cancelAddBtn").addEventListener("click", () => addNameModal.style.display="none");
-    
+    document.getElementById("cancelAddBtn").addEventListener("click", () => {
+      addNameModal.style.display = "none";
+    });
+
     document.getElementById("confirmAddBtn").addEventListener("click", async () => {
       const name = document.getElementById("newStudentNameInput").value.trim();
       if (name) {
         const id = `s_${Date.now()}`;
+        const nextSlNo = sheetBody.querySelectorAll("tr[id^='row-']").length + 1;
         document.getElementById("newStudentNameInput").value = "";
-        addNameModal.style.display="none";
+        addNameModal.style.display = "none";
         try {
-          await setDoc(doc(db, DB_COLLECTION, id), { id, slNo: 999, name, want: "", received: "", given: "", remaining: "" });
-          logHistory("ADD", `Added new student: ${name}`);
-        } catch(error) {
+          await setDoc(doc(db, DB_COLLECTION, id), {
+            id,
+            slNo: nextSlNo,
+            name,
+            want: "",
+            received: "",
+            given: "",
+            remaining: ""
+          });
+          await logHistory("ADD", `Added new student: ${name}`);
+          showSaved();
+        } catch (error) {
           console.error("Failed to add new student: ", error);
         }
       } else {
-        addNameModal.style.display="none";
+        addNameModal.style.display = "none";
       }
     });
 
-    function renderLocalData() {
-        sheetBody.innerHTML = "";
-        STUDENT_NAMES.forEach((name, i) => {
-            const data = { id: `s_init_${i.toString().padStart(3, '0')}`, slNo: i + 1, name: name, want: "", received: "", given: "", remaining: "" };
-            sheetBody.appendChild(buildRow(data));
-        });
-        document.getElementById("rowCountBadge").textContent = STUDENT_NAMES.length;
-    }
-
-    renderLocalData(); 
-
-    async function syncRoster(existingDocs) {
+    // --- INITIAL ROSTER SYNC & CORRUPT DOC CLEANUP ---
+    async function syncAndCleanRoster() {
+      const snapshot = await getDocs(collection(db, DB_COLLECTION));
       const metaRef = doc(db, DB_META, ROSTER_VERSION);
       const metaSnap = await getDoc(metaRef);
-      if (metaSnap.exists()) return;
 
-      const byId = new Map(existingDocs.map(d => [d.id, d]));
-      const writes = [];
-      let created = 0;
-
-      STUDENT_NAMES.forEach((name, i) => {
-        const id = `s_init_${i.toString().padStart(3, '0')}`;
-        const existing = byId.get(id);
-        if (!existing) {
-          created++;
-          writes.push(setDoc(doc(db, DB_COLLECTION, id), {
-            id, slNo: i + 1, name, want: "", received: "", given: "", remaining: ""
-          }));
+      // Clean up any partial/broken documents created by the old bug (missing a valid student name)
+      const cleanupPromises = [];
+      const validDocs = [];
+      snapshot.forEach((docSnap) => {
+        const d = docSnap.data();
+        if (!d.name || String(d.name).trim() === "" || d.name === "undefined") {
+          cleanupPromises.push(deleteDoc(doc(db, DB_COLLECTION, docSnap.id)));
+        } else {
+          validDocs.push({ ...d, id: docSnap.id });
         }
       });
-      if (writes.length > 0) {
-        await Promise.all(writes);
-        await setDoc(metaRef, { done: true, by: currentUser, at: serverTimestamp(), count: STUDENT_NAMES.length });
-        logHistory("ROSTER", `Roster synced automatically (${created} added).`);
+      if (cleanupPromises.length > 0) {
+        await Promise.all(cleanupPromises);
+      }
+
+      // Seed initial roster only if never seeded before and collection is empty
+      if (!metaSnap.exists() && validDocs.length === 0) {
+        const batch = writeBatch(db);
+        STUDENT_NAMES.forEach((name, i) => {
+          const id = `s_init_${i.toString().padStart(3, "0")}`;
+          batch.set(doc(db, DB_COLLECTION, id), {
+            id,
+            slNo: i + 1,
+            name,
+            want: "",
+            received: "",
+            given: "",
+            remaining: ""
+          });
+        });
+        batch.set(metaRef, {
+          done: true,
+          by: currentUser,
+          at: serverTimestamp(),
+          count: STUDENT_NAMES.length
+        });
+        await batch.commit();
+        await logHistory("ROSTER", `Roster initialized (${STUDENT_NAMES.length} students).`);
+      } else if (!metaSnap.exists()) {
+        await setDoc(metaRef, {
+          done: true,
+          by: currentUser,
+          at: serverTimestamp(),
+          count: validDocs.length
+        });
       }
     }
 
-    // 🔴 FIX: Granular Real-Time Tracker 🔴
-    function initFirebaseData() {
+    async function initFirebaseData() {
+      try {
+        await syncAndCleanRoster();
+      } catch (e) {
+        console.error("Roster Sync Error:", e);
+      }
+
       onSnapshot(collection(db, DB_COLLECTION), (snapshot) => {
+        if (!initialSnapshotLoaded) {
+          sheetBody.innerHTML = "";
+          initialSnapshotLoaded = true;
+        }
+
         snapshot.docChanges().forEach((change) => {
-          const data = change.doc.data();
-          const existingRow = document.getElementById(`row-${data.id}`);
+          const docId = change.doc.id;
+          const data = { ...change.doc.data(), id: docId };
+          const existingRow = document.getElementById(`row-${docId}`);
+
+          if (change.type === "removed") {
+            if (existingRow) existingRow.remove();
+            return;
+          }
+
+          // Ignore and purge any corrupted record lacking a name
+          if (!data.name || String(data.name).trim() === "" || data.name === "undefined") {
+            if (existingRow) existingRow.remove();
+            deleteDoc(doc(db, DB_COLLECTION, docId)).catch(() => {});
+            return;
+          }
 
           if (change.type === "added" || change.type === "modified") {
             if (existingRow) {
-               updateRowDOM(existingRow, data); // Seamlessly updates visuals without losing focus
+              updateRowDOM(existingRow, data);
             } else {
-               sheetBody.appendChild(buildRow(data));
+              sheetBody.appendChild(buildRow(data));
             }
           }
-          if (change.type === "removed") {
-            if (existingRow) existingRow.remove();
-          }
         });
 
-        // Re-sort correctly without destroying DOM
-        const rows = Array.from(sheetBody.querySelectorAll('tr'));
-        rows.sort((a, b) => {
-          const aNo = parseInt(a.querySelector('.col-slno').textContent) || 999;
-          const bNo = parseInt(b.querySelector('.col-slno').textContent) || 999;
-          return aNo - bNo;
-        });
-        rows.forEach((row, idx) => {
-          sheetBody.appendChild(row);
-          // Renumber dynamic rows natively
-          const slCell = row.querySelector('.col-slno');
-          const hrCell = row.querySelector('.row-header');
-          if(slCell && parseInt(slCell.textContent) !== (idx+1)) {
-             slCell.textContent = idx+1;
-             if(hrCell) hrCell.textContent = idx+1;
-             setDoc(doc(db, DB_COLLECTION, row._rowData.id), { slNo: idx+1 }, { merge: true });
-          }
-        });
-        
-        document.getElementById("rowCountBadge").textContent = sheetBody.querySelectorAll('tr').length;
+        resortAndRenumberDOM();
       }, (error) => {
-        console.error("Firebase Listener Error. Make sure Rules allow read/write:", error);
+        console.error("Firebase Listener Error:", error);
       });
-
-      getDocs(collection(db, DB_COLLECTION)).then(async (snapshot) => {
-        const existingDocs = snapshot.docs.map(d => d.data());
-        await syncRoster(existingDocs);
-      }).catch(e => console.error("Roster Sync Error:", e));
     }
 
-    initFirebaseData(); 
+    initFirebaseData();
 
-    // --- DRAGGABLE HISTORY LOG ---
+    // --- DRAGGABLE HISTORY LOG WITH DELETE / CLEAR SUPPORT ---
     const historyWindow = document.getElementById("historyWindow");
     const historyHeader = document.getElementById("historyHeader");
     let isDragging = false, startX, startY, initialLeft, initialTop;
 
     const startDrag = (e) => {
+      if (e.target.closest("button")) return;
       isDragging = true;
-      startX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
-      startY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+      startX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
+      startY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
       initialLeft = historyWindow.offsetLeft;
       initialTop = historyWindow.offsetTop;
     };
-    
+
     historyHeader.addEventListener("mousedown", startDrag);
-    historyHeader.addEventListener("touchstart", startDrag, {passive:true});
+    historyHeader.addEventListener("touchstart", startDrag, { passive: true });
 
     const onDrag = (e) => {
-      if(isDragging) {
-        const currentX = e.type.includes('mouse') ? e.clientX : e.touches[0].clientX;
-        const currentY = e.type.includes('mouse') ? e.clientY : e.touches[0].clientY;
+      if (isDragging) {
+        const currentX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
+        const currentY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
         historyWindow.style.left = `${initialLeft + currentX - startX}px`;
         historyWindow.style.top = `${initialTop + currentY - startY}px`;
       }
     };
-    
+
     document.addEventListener("mousemove", onDrag);
-    document.addEventListener("touchmove", onDrag, {passive:true});
-    const stopDrag = () => isDragging = false;
+    document.addEventListener("touchmove", onDrag, { passive: true });
+    const stopDrag = () => { isDragging = false; };
     document.addEventListener("mouseup", stopDrag);
     document.addEventListener("touchend", stopDrag);
 
     let historyUnsub = null;
-    document.getElementById("btnHistory").addEventListener("click", () => {
-      historyWindow.style.display = "flex";
+    function subscribeHistory() {
       if (historyUnsub) historyUnsub();
-      const q = query(collection(db, DB_HISTORY), orderBy("timestamp", "desc"));
-      historyUnsub = onSnapshot(q, (snap) => {
+      historyUnsub = onSnapshot(collection(db, DB_HISTORY), (snap) => {
         const body = document.getElementById("historyBody");
         body.innerHTML = "";
-        snap.forEach(docSnap => {
-          const log = docSnap.data();
-          const time = log.timestamp ? log.timestamp.toDate().toLocaleString() : "Just now";
-          body.innerHTML += `
-            <div class="history-card">
-              <div class="meta"><span class="user">${escapeHTML(log.user)}</span> • ${time} • <b>${escapeHTML(log.action)}</b></div>
+
+        const entries = [];
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          const timeMs = data.timestamp?.toMillis ? data.timestamp.toMillis() : (data.clientTime || 0);
+          entries.push({ id: docSnap.id, ...data, _sortTime: timeMs });
+        });
+
+        entries.sort((a, b) => b._sortTime - a._sortTime);
+
+        if (entries.length === 0) {
+          body.innerHTML = `<div style="text-align:center; color:#999;">No history found.</div>`;
+          return;
+        }
+
+        entries.forEach((log) => {
+          const timeStr = log.timestamp?.toDate
+            ? log.timestamp.toDate().toLocaleString()
+            : (log.clientTime ? new Date(log.clientTime).toLocaleString() : "Just now");
+
+          const card = document.createElement("div");
+          card.className = "history-card";
+          card.innerHTML = `
+            <div>
+              <div class="meta"><span class="user">${escapeHTML(log.user)}</span> • ${escapeHTML(timeStr)} • <b>${escapeHTML(log.action)}</b></div>
               <div>${escapeHTML(log.details)}</div>
             </div>
+            <button class="history-del-btn" title="Delete this history entry">✕</button>
           `;
+          card.querySelector(".history-del-btn").addEventListener("click", async () => {
+            try {
+              await deleteDoc(doc(db, DB_HISTORY, log.id));
+            } catch (err) {
+              console.error("Failed to delete history item:", err);
+            }
+          });
+          body.appendChild(card);
         });
-        if(snap.empty) body.innerHTML = `<div style="text-align:center; color:#999;">No history found.</div>`;
+      }, (err) => {
+        console.error("History Listener Error:", err);
       });
+    }
+
+    document.getElementById("btnHistory").addEventListener("click", () => {
+      historyWindow.style.display = "flex";
+      subscribeHistory();
     });
 
-    document.getElementById("closeHistoryBtn").addEventListener("click", () => historyWindow.style.display = "none");
+    document.getElementById("clearHistoryBtn").addEventListener("click", async () => {
+      if (!confirm("Clear all edit history logs?")) return;
+      try {
+        const snap = await getDocs(collection(db, DB_HISTORY));
+        const batch = writeBatch(db);
+        snap.forEach((d) => batch.delete(doc(db, DB_HISTORY, d.id)));
+        await batch.commit();
+      } catch (err) {
+        console.error("Failed to clear history:", err);
+      }
+    });
+
+    document.getElementById("closeHistoryBtn").addEventListener("click", () => {
+      historyWindow.style.display = "none";
+    });
   </script>
 </body>
 </html>
