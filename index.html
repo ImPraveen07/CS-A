@@ -514,8 +514,6 @@
       "SUHAIB BIN KASIM", "SWATHY R"
     ];
 
-    // Names used by the previous version of this page (same order) - used only so the
-    // roster sync can safely rename old rows without overwriting names people edited by hand.
     const OLD_STUDENT_NAMES = [
       "AADIL AMEEN VS", "ABDUL BASITH A", "ADHIL MUHAMMED N", "AISHA SOOFIYA S", "AKSHAY KOWSIK",
       "AMALKHAIS N", "AMEEN CN", "ANISAR ANSARI", "ANSIYATY", "ARATHI BABU", "ASHINA N", "ASIYA MM", 
@@ -587,12 +585,27 @@
       tr.innerHTML += `<td class="col-slno sl-index" title="Hold to delete">${data.slNo}</td>`;
       
       const nameCell = document.createElement("td");
-      nameCell.className = "col-name"; nameCell.contentEditable = "true"; nameCell.textContent = data.name;
+      nameCell.className = "col-name"; 
+      nameCell.contentEditable = "true"; 
+      nameCell.textContent = data.name;
+
+      // Fix for Enter key linebreaks during edit
+      nameCell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault(); 
+          nameCell.blur(); 
+        }
+      });
+
       nameCell.addEventListener("blur", (e) => {
         const newName = e.target.textContent.trim();
         if (newName && newName !== data.name) {
           logHistory("EDIT", `Changed name from "${data.name}" to "${newName}"`);
-          data.name = newName; autoSaveRow(data.id, data);
+          data.name = newName; 
+          autoSaveRow(data.id, data);
+        } else if (!newName) {
+          // Revert to original if accidentally cleared out
+          e.target.textContent = data.name; 
         }
       });
       tr.appendChild(nameCell);
@@ -649,18 +662,15 @@
     }
 
     function updateRowUI(rowElem, data) {
-      // Toggle strikethrough class on row
       if (data.given === "Completed") {
           rowElem.classList.add("row-completed");
       } else {
           rowElem.classList.remove("row-completed");
       }
 
-      // Update Red/Green Highlight on Received input based on Want
       const box = rowElem.querySelector(".currency-input-box");
       if (box) box.className = `currency-input-box ${getHighlightClass(data.want, data.received)}`;
       
-      // Update Remaining Visuals
       const remCell = rowElem.querySelector(".col-remaining");
       if (remCell) remCell.textContent = data.remaining;
     }
@@ -676,7 +686,6 @@
           const oldVal = data.received || "0";
           data.received = e.target.value;
           
-          // Instantly Auto Calc Remaining upon typing Received if Want is Yes
           if (data.want === "Yes") {
             let cleanRec = data.received.toString().replace(/,/g, "").replace(/[^0-9]/g, "");
             let receivedNum = parseInt(cleanRec, 10) || 0;
@@ -707,7 +716,6 @@
       if (currentDataRef.want !== value) {
         currentDataRef.want = value;
 
-        // Recalculate remaining based on the new Want value
         if (currentDataRef.want === "Yes") {
           let cleanRec = (currentDataRef.received || "").toString().replace(/,/g, "").replace(/[^0-9]/g, "");
           let receivedNum = parseInt(cleanRec, 10) || 0;
@@ -726,7 +734,6 @@
     document.getElementById("wantYesBtn").addEventListener("click", () => setWantValue("Yes"));
     document.getElementById("wantNoBtn").addEventListener("click", () => setWantValue("No"));
     document.getElementById("wantClearBtn").addEventListener("click", () => setWantValue(""));
-
 
     // --- GIVEN POPOVER LOGIC ---
     const givenPopover = document.getElementById("givenPopover");
@@ -750,18 +757,14 @@
       givenPopover.style.display = "none";
     }
 
-    // FIX: these IDs now match the buttons in the HTML (previously a mismatch threw an
-    // error here and stopped the rest of the script, so nothing was loaded/saved).
     document.getElementById("givenCompletedBtn").addEventListener("click", () => setGivenValue("Completed"));
     document.getElementById("givenYetBtn").addEventListener("click", () => setGivenValue("Yet"));
     document.getElementById("givenClearBtn").addEventListener("click", () => setGivenValue(""));
     
-    // Close popovers on outside click
     document.addEventListener("click", (e) => { 
       if (!wantPopover.contains(e.target) && !e.target.closest(".col-want")) wantPopover.style.display = "none"; 
       if (!givenPopover.contains(e.target) && !e.target.closest(".col-given")) givenPopover.style.display = "none"; 
     });
-
 
     // --- LONG PRESS DELETE & MODALS ---
     let pressTimer;
@@ -809,19 +812,26 @@
       const name = document.getElementById("newStudentNameInput").value.trim();
       if (name) {
         const id = `s_${Date.now()}`;
-        // Changed remaining default from "165" to "" since Want is empty initially
-        await setDoc(doc(db, DB_COLLECTION, id), { id, slNo: 999, name, want: "", received: "", given: "", remaining: "" });
-        logHistory("ADD", `Added new student: ${name}`);
+        
+        // Optimistically close modal and clear immediately to prevent double-clicks
         document.getElementById("newStudentNameInput").value = "";
+        addNameModal.style.display="none";
+
+        try {
+          await setDoc(doc(db, DB_COLLECTION, id), { id, slNo: 999, name, want: "", received: "", given: "", remaining: "" });
+          logHistory("ADD", `Added new student: ${name}`);
+        } catch(error) {
+          console.error("Failed to add new student: ", error);
+        }
+      } else {
+        addNameModal.style.display="none";
       }
-      addNameModal.style.display="none";
     });
 
     // INSTANT LOCAL LOAD
     function renderLocalData() {
         sheetBody.innerHTML = "";
         STUDENT_NAMES.forEach((name, i) => {
-            // Changed remaining default from "165" to "" since Want is empty initially
             const data = { id: `s_init_${i.toString().padStart(3, '0')}`, slNo: i + 1, name: name, want: "", received: "", given: "", remaining: "" };
             sheetBody.appendChild(buildRow(data));
         });
@@ -830,10 +840,6 @@
 
     renderLocalData(); // Render instantly so the user isn't stuck waiting
 
-    // ONE-TIME ROSTER SYNC: pushes the PDF names into Firestore for everyone.
-    //  - missing student rows are created
-    //  - rows still carrying the old spelling are renamed
-    //  - names someone edited by hand, and all Want/Received/Given data, are left untouched
     async function syncRoster(existingDocs) {
       const metaRef = doc(db, DB_META, ROSTER_VERSION);
       const metaSnap = await getDoc(metaRef);
@@ -849,7 +855,6 @@
         if (!existing) {
           created++;
           writes.push(setDoc(doc(db, DB_COLLECTION, id), {
-            // Changed remaining default from "165" to ""
             id, slNo: i + 1, name, want: "", received: "", given: "", remaining: ""
           }));
         } else if (existing.name !== name && existing.name === OLD_STUDENT_NAMES[i]) {
@@ -863,39 +868,41 @@
       logHistory("ROSTER", `CS-A roster synced from attendance PDF (${STUDENT_NAMES.length} students; ${created} added, ${renamed} names corrected).`);
     }
 
-    async function initFirebaseData() {
-      try {
-        const snapshot = await getDocs(collection(db, DB_COLLECTION));
-        const existingDocs = snapshot.docs.map(d => d.data());
-
-        await syncRoster(existingDocs);
+    function initFirebaseData() {
+      // START REALTIME LISTENER IMMEDIATELY to prevent saves from being blocked
+      onSnapshot(collection(db, DB_COLLECTION), (querySnapshot) => {
+        initialLoadComplete = true; // DB connected - saves are now allowed
         
-        initialLoadComplete = true; // DB is ready, safe to track saves/history now
+        let students = [];
+        querySnapshot.forEach(d => students.push(d.data()));
+        
+        if (students.length === 0) return; 
 
-        onSnapshot(collection(db, DB_COLLECTION), (querySnapshot) => {
-          let students = [];
-          querySnapshot.forEach(d => students.push(d.data()));
+        students.sort((a, b) => a.slNo - b.slNo || a.id.localeCompare(b.id));
+
+        sheetBody.innerHTML = "";
+        students.forEach((data, index) => {
+          const correctSlNo = index + 1;
+          const needsRenumber = data.slNo !== correctSlNo;
+          data.slNo = correctSlNo; 
           
-          if (students.length === 0) return; // Prevent screen wiping if firebase randomly returns empty
-
-          students.sort((a, b) => a.slNo - b.slNo || a.id.localeCompare(b.id));
-
-          sheetBody.innerHTML = "";
-          students.forEach((data, index) => {
-            const correctSlNo = index + 1;
-            const needsRenumber = data.slNo !== correctSlNo;
-            data.slNo = correctSlNo; 
-            sheetBody.appendChild(buildRow(data));
-            if (needsRenumber) {
-                setDoc(doc(db, DB_COLLECTION, data.id), { slNo: correctSlNo }, { merge: true }); 
-            }
-          });
-          document.getElementById("rowCountBadge").textContent = students.length;
+          sheetBody.appendChild(buildRow(data));
+          
+          if (needsRenumber) {
+              setDoc(doc(db, DB_COLLECTION, data.id), { slNo: correctSlNo }, { merge: true }); 
+          }
         });
+        document.getElementById("rowCountBadge").textContent = students.length;
+      }, (error) => {
+        console.error("Firebase Listener Error:", error);
+        initialLoadComplete = true; // Failsafe to allow local interactions
+      });
 
-      } catch (error) {
-        console.error("Firebase Init Error (Running Offline Mode):", error);
-      }
+      // Run roster sync silently in background
+      getDocs(collection(db, DB_COLLECTION)).then(async (snapshot) => {
+        const existingDocs = snapshot.docs.map(d => d.data());
+        await syncRoster(existingDocs);
+      }).catch(e => console.error("Roster Sync Error:", e));
     }
 
     initFirebaseData(); // Syncs silently in background
